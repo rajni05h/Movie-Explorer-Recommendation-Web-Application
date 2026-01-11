@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Movie Explorer</title>
+  <style>
+    :root {
+      --bg: #36040d;        /* slate-900 */
+      --card: #111827;      /* gray-900 */
+      --text: #e5e7eb;      /* gray-200 */
+      --muted: #9ca3af;     /* gray-400 */
+      --accent: #38bdf8;    /* sky-400 */
+      --danger: #ef4444;    /* red-500 */
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: linear-gradient(180deg, #020617, var(--bg)); color: var(--text);
+    }
+    header {
+      padding: 16px; position: sticky; top: 0; backdrop-filter: blur(6px);
+      background: rgba(2,6,23,.75); border-bottom: 1px solid #1f2937; z-index: 10;
+    }
+    .container { max-width: 1200px; margin: auto; padding: 16px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    input, select, button {
+      padding: 10px 12px; border-radius: 10px; border: 1px solid #1f2937;
+      background: #36040d; color: var(--text);
+    }
+    input::placeholder { color: var(--muted); }
+    button { cursor: pointer; background: #020617; }
+    button.primary { background: linear-gradient(135deg, #0284c7, var(--accent)); border: none; color: #020617; font-weight: 600; }
+    button.primary:hover { filter: brightness(1.05); }
+    .grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px;
+    }
+    .card {
+      background: linear-gradient(180deg, #020617, var(--card)); border: 1px solid #1f2937;
+      border-radius: 16px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,.25);
+      display: flex; flex-direction: column;
+    }
+    .poster { aspect-ratio: 2/3; background: #020617; display: flex; align-items: center; justify-content: center; }
+    .poster img { width: 100%; height: 100%; object-fit: cover; }
+    .content { padding: 12px; display: grid; gap: 8px; }
+    .title { font-size: 1rem; font-weight: 700; }
+    .meta { font-size: .85rem; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; }
+    .badge { border: 1px solid #1f2937; border-radius: 999px; padding: 2px 8px; }
+    .plot { font-size: .8rem; color: #d1d5db; }
+    .rating { font-weight: 700; color: #fde047; }
+    .error { color: var(--danger); margin: 12px 0; }
+    footer { border-top: 1px solid #1f2937; color: var(--muted); }
+    @media (max-width: 640px) {
+      header .row { gap: 8px; }
+      .plot { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <div class="row">
+        <input id="query" type="text" placeholder="Search movie title…" />
+        <button class="primary" id="searchBtn">Search</button>
+        <select id="sort">
+          <option value="">Sort</option>
+          <option value="year_desc">Year ↓</option>
+          <option value="year_asc">Year ↑</option>
+          <option value="rating_desc">Rating ↓</option>
+          <option value="rating_asc">Rating ↑</option>
+        </select>
+      </div>
+      <div id="message" class="error"></div>
+    </div>
+  </header>
+
+  <main class="container">
+    <div id="results" class="grid"></div>
+  </main>
+
+  <footer>
+    <div class="container">Movie Explorer • OMDb API</div>
+  </footer>
+
+  <script>
+    // Dictionary API (no API key required)
+    const DICTIONARY_API = 'https://api.dictionaryapi.dev/api/v2/entries/en/';
+
+    const queryEl = document.getElementById('query');
+    const searchBtn = document.getElementById('searchBtn');
+    const resultsEl = document.getElementById('results');
+    const messageEl = document.getElementById('message');
+    const sortEl = document.getElementById('sort');
+
+    let movies = [];
+
+    // Demo data (used when API key is missing or before first search)
+    const demoMovies = [
+      {
+        Title: "Inception",
+        Year: "2010",
+        Genre: "Action, Sci-Fi",
+        Plot: "A thief who steals corporate secrets through dream-sharing technology is given an inverse task of planting an idea.",
+        imdbRating: "8.8",
+        Poster: "https://m.media-amazon.com/images/M/MV5BMmViMGU5MDQtZDJkZi00YzZhLTg5YjEtN2E1ZGM3ZGU2ODk2XkEyXkFqcGc@._V1_SX300.jpg"
+      },
+      {
+        Title: "Interstellar",
+        Year: "2014",
+        Genre: "Adventure, Drama, Sci-Fi",
+        Plot: "A team of explorers travel through a wormhole in space in an attempt to ensure humanity's survival.",
+        imdbRating: "8.7",
+        Poster: "https://m.media-amazon.com/images/M/MV5BZjdkOTU3MDktN2IxOS00OGEyLWFmMjktY2FiMmZkNWIyODFhXkEyXkFqcGc@._V1_SX300.jpg"
+      },
+      {
+        Title: "The Dark Knight",
+        Year: "2008",
+        Genre: "Action, Crime, Drama",
+        Plot: "Batman faces the Joker, a criminal mastermind who plunges Gotham City into chaos.",
+        imdbRating: "9.0",
+        Poster: "https://m.media-amazon.com/images/M/MV5BN2EyZjM3NzktNmQyMS00YzQzLTg3YzUtNzY3ZDJmYzE3N2FhXkEyXkFqcGc@._V1_SX300.jpg"
+      },
+      {
+        Title: "Avengers: Endgame",
+        Year: "2019",
+        Genre: "Action, Adventure, Drama",
+        Plot: "After the devastating events of Infinity War, the Avengers assemble once more to reverse Thanos' actions.",
+        imdbRating: "8.4",
+        Poster: "https://m.media-amazon.com/images/M/MV5BMTc5MDE2ODcwNV5BMl5BanBnXkFtZTgwMzI2NzQ2NzM@._V1_SX300.jpg"
+      }
+    ];
+
+    searchBtn.addEventListener('click', searchMovies);
+
+    // Load demo data on first load
+    window.addEventListener('load', () => {
+      movies = demoMovies;
+      render(movies);
+    });
+    queryEl.addEventListener('keydown', (e) => e.key === 'Enter' && searchMovies());
+    sortEl.addEventListener('change', applySort);
+
+    async function searchMovies() {
+      const q = queryEl.value.trim();
+      messageEl.textContent = '';
+      resultsEl.innerHTML = '';
+      movies = [];
+
+      if (!q) {
+        alert('Please enter a word');
+        return;
+      }
+
+      try {
+        const res = await fetch(`${DICTIONARY_API}${encodeURIComponent(q)}`);
+        const data = await res.json();
+
+        if (!Array.isArray(data)) {
+          messageEl.textContent = 'Word not found.';
+          return;
+        }
+
+        movies = data.map(entry => ({
+          Title: entry.word,
+          Year: entry.phonetic || '',
+          Genre: entry.meanings?.[0]?.partOfSpeech || 'N/A',
+          Plot: entry.meanings?.[0]?.definitions?.[0]?.definition || '',
+          imdbRating: entry.meanings?.length || '',
+          Poster: ''
+        }));
+
+        render(movies);
+      } catch (err) {
+        messageEl.textContent = 'Something went wrong. Please try again.';
+      }
+    }
+
+    function applySort() {
+      const v = sortEl.value;
+      if (!v) return render(movies);
+      const sorted = [...movies].sort((a, b) => {
+        const yearA = parseInt(a.Year) || 0;
+        const yearB = parseInt(b.Year) || 0;
+        const rateA = parseFloat(a.imdbRating) || 0;
+        const rateB = parseFloat(b.imdbRating) || 0;
+        if (v === 'year_desc') return yearB - yearA;
+        if (v === 'year_asc') return yearA - yearB;
+        if (v === 'rating_desc') return rateB - rateA;
+        if (v === 'rating_asc') return rateA - rateB;
+        return 0;
+      });
+      render(sorted);
+    }
+
+    function render(list) {
+      resultsEl.innerHTML = list.map(m => `
+        <article class="card">
+          <div class="poster">
+            ${m.Poster && m.Poster !== 'N/A' ? `<img src="${m.Poster}" alt="${m.Title}"/>` : '<span class="muted">No Image</span>'}
+          </div>
+          <div class="content">
+            <div class="title">${m.Title}</div>
+            <div class="meta">
+              <span class="badge">${m.Year}</span>
+              <span class="badge">${m.Genre || 'N/A'}</span>
+              <span class="rating">⭐ ${m.imdbRating || 'N/A'}</span>
+            </div>
+            <div class="plot">${m.Plot || ''}</div>
+          </div>
+        </article>
+      `).join('');
+    }
+  </script>
+</body>
+</html>
+
